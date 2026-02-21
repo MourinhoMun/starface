@@ -1,0 +1,54 @@
+{
+  "name": "my-star-face-app",
+  "private": true,
+  "version": "1.0.0",
+  "main": "electron-main.js",
+  "description": "My Star Face App - AI Image Generator",
+  "author": "Peng_IP",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "electron:start": "electron .",
+    "electron:build": "vite build && cross-env WIN_CODE_SIGN_SKIP=true electron-builder"
+  },
+  "dependencies": {
+    "axios": "^1.13.5",
+    "vue": "^3.5.25"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.2",
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "electron": "^28.3.3",
+    "electron-builder": "^24.13.3",
+    "electron-packager": "^17.1.2",
+    "vite": "^7.3.1",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.mystarface.app",
+    "productName": "My Star Face",
+    "directories": {
+      "output": "dist_electron"
+    },
+    "win": {
+      "target": "portable"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "files": [
+      "dist/**/*",
+      "electron-main.js"
+    ],
+    "extraResources": [
+      {
+        "from": "../backend",
+        "to": "backend",
+        "filter": ["**/*", "!node_modules/.cache", "!public/images/*", "!database.sqlite", "!.env"]
+      }
+    ]
+  }
+}
