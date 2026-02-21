@@ -85,14 +85,18 @@ const callGeminiImage = async (prompt, base64Image) => {
         { headers: { 'Content-Type': 'application/json' } }
     );
 
-    if (res.data?.candidates?.length > 0) {
-        const parts = res.data.candidates[0].content?.parts || [];
+    const candidates = res.data?.candidates || [];
+    console.log('[GeminiImage] candidates:', candidates.length, '| finishReason:', candidates[0]?.finishReason);
+    if (candidates.length > 0) {
+        const parts = candidates[0].content?.parts || [];
+        console.log('[GeminiImage] parts:', parts.map(p => p.inline_data ? 'inline_data' : p.inlineData ? 'inlineData' : `text(${p.text?.substring(0,80)})`));
         for (const part of parts) {
             if (part.inline_data) return `data:${part.inline_data.mime_type};base64,${part.inline_data.data}`;
             if (part.inlineData) return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
             if (part.text?.startsWith('data:') || part.text?.startsWith('http')) return part.text;
         }
     }
+    console.log('[GeminiImage] no image data found, raw response:', JSON.stringify(res.data).substring(0, 300));
     return null;
 };
 
@@ -104,7 +108,7 @@ function saveImageLocally(userId, dataUrl) {
         const ext = (header.match(/data:(image\/\w+);/) || [])[1]?.split('/')[1] || 'png';
         const filename = `${userId}-${Date.now()}-${uuidv4()}.${ext}`;
         fs.writeFileSync(path.join(IMAGES_DIR, filename), Buffer.from(body, 'base64'));
-        return `http://localhost:${PORT}/images/${filename}`;
+        return `/starface-images/${filename}`;
     } catch (e) {
         console.error('Failed to save image:', e);
         return null;
@@ -113,7 +117,7 @@ function saveImageLocally(userId, dataUrl) {
 
 // --- Routes ---
 
-// 1. Activate / Recharge �?proxy to pengip.com
+// 1. Activate / Recharge �?proxy to pengip.com
 app.post('/api/v1/user/activate', async (req, res) => {
     const { code, deviceId } = req.body;
     if (!code || !deviceId) return res.status(400).json({ error: 'Code and deviceId are required' });
@@ -129,7 +133,7 @@ app.post('/api/v1/user/activate', async (req, res) => {
     }
 });
 
-// 2. Balance �?proxy to pengip.com
+// 2. Balance �?proxy to pengip.com
 app.get('/api/v1/user/balance', async (req, res) => {
     try {
         const { data, status } = await axios.get(`${LICENSE_BACKEND_URL}/api/v1/user/balance`, {
@@ -142,10 +146,10 @@ app.get('/api/v1/user/balance', async (req, res) => {
     }
 });
 
-// 3. AI Suggestion (Text Gen) �?costs mystarface_suggestion points
+// 3. AI Suggestion (Text Gen) �?costs mystarface_suggestion points
 app.post('/api/v1/proxy/ai-suggestion', authenticateToken, async (req, res) => {
     const { type, style } = req.body;
-    const prompt = `请生成一个关�?${type}"的简短中文描述，风格偏向"${style || '随机'}"。直接返回描述文本，不要啰嗦。例如：红色晚礼服`;
+    const prompt = `请生成一个关�?${type}"的简短中文描述，风格偏向"${style || '随机'}"。直接返回描述文本，不要啰嗦。例如：红色晚礼服`;
 
     try {
         const text = await callGeminiText(prompt);
@@ -156,7 +160,7 @@ app.post('/api/v1/proxy/ai-suggestion', authenticateToken, async (req, res) => {
     }
 });
 
-// 4. Image Generation �?costs mystarface_generate points (10 per image)
+// 4. Image Generation – single: 10pts (mystarface_generate), batch x5: 50pts (mystarface_generate_batch)
 app.post('/api/v1/proxy/generate', authenticateToken, async (req, res) => {
     const { prompts, userImageBase64 } = req.body;
 
@@ -164,9 +168,11 @@ app.post('/api/v1/proxy/generate', authenticateToken, async (req, res) => {
         return res.status(400).json({ error: 'Missing prompts or image' });
     }
 
-    // Pre-check balance
+    const isBatch = prompts.length > 1;
     const COST_PER_IMAGE = 10;
     const totalCost = COST_PER_IMAGE * prompts.length;
+
+    // Pre-check balance
     try {
         const balRes = await axios.get(`${LICENSE_BACKEND_URL}/api/v1/user/balance`, {
             headers: { Authorization: req.authHeader },
@@ -179,34 +185,62 @@ app.post('/api/v1/proxy/generate', authenticateToken, async (req, res) => {
         // network error: graceful degradation
     }
 
+    // Batch mode: deduct 50 points upfront in one call
+    if (isBatch) {
+        await axios.post(`${LICENSE_BACKEND_URL}/api/v1/proxy/use`,
+            { software: 'mystarface_generate_batch' },
+            { headers: { Authorization: req.authHeader, 'Content-Type': 'application/json' } }
+        ).catch(err => console.error('Batch deduct failed:', err.response?.data || err.message));
+    }
+
     const results = [];
-    try {
-        for (const p of prompts) {
+    for (const p of prompts) {
+        try {
             const fullPrompt = `Please edit this image based on the instructions: ${p.positive}. Negative prompt: ${p.negative}`;
             const imgData = await callGeminiImage(fullPrompt, userImageBase64);
-            results.push(imgData);
 
             if (imgData) {
-                // Save locally for history (non-blocking)
-                saveImageLocally('user', imgData);
-                // Deduct 1 image worth of points
-                deductPoints(req.authHeader, 'mystarface_generate');
+                const savedUrl = saveImageLocally('user', imgData);
+                results.push(savedUrl || imgData);
+                // Single mode: deduct per image after success
+                if (!isBatch) {
+                    deductPoints(req.authHeader, 'mystarface_generate');
+                }
+            } else {
+                results.push(null);
             }
+        } catch (e) {
+            console.error(`Image gen error (prompt index ${results.length}):`, e.message);
+            results.push(null);
         }
+    }
 
-        const balRes = await axios.get(`${LICENSE_BACKEND_URL}/api/v1/user/balance`, {
-            headers: { Authorization: req.authHeader },
-            validateStatus: () => true
-        }).catch(() => ({ data: { balance: 0 } }));
+    const balRes = await axios.get(`${LICENSE_BACKEND_URL}/api/v1/user/balance`, {
+        headers: { Authorization: req.authHeader },
+        validateStatus: () => true
+    }).catch(() => ({ data: { balance: 0 } }));
 
-        res.json({
-            success: true,
-            images: results,
-            remaining_points: balRes.data.balance
-        });
-    } catch (apiErr) {
-        console.error('Gen Loop Error:', apiErr);
-        res.status(500).json({ error: 'Generation Process Failed' });
+    res.json({
+        success: true,
+        images: results,
+        remaining_points: balRes.data.balance
+    });
+});
+
+// 5. History - list saved images
+app.get('/api/v1/user/history', authenticateToken, (req, res) => {
+    try {
+        const files = fs.readdirSync(IMAGES_DIR)
+            .filter(f => /\.(png|jpg|jpeg|webp)$/i.test(f))
+            .map(f => ({
+                imageUrl: `https://pengip.com/starface-images/${f}`,
+                createdAt: fs.statSync(path.join(IMAGES_DIR, f)).mtimeMs
+            }))
+            .sort((a, b) => b.createdAt - a.createdAt)
+            .slice(0, 50);
+        res.json({ history: files });
+    } catch (e) {
+        res.json({ history: [] });
     }
 });
 

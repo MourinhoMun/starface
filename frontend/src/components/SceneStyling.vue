@@ -43,14 +43,14 @@ const emit = defineEmits(['update:modelValue']);
 
 <style scoped>
 .scene-styling {
-  background: #222;
+  background: #f0f2f5;
   padding: 20px;
   border-radius: 12px;
   margin-bottom: 20px;
 }
 
 h3 {
-  color: #fff;
+  color: #1a1a2e;
   font-size: 16px;
   margin-bottom: 15px;
   border-left: 3px solid #7c4dff;

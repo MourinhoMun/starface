@@ -63,7 +63,7 @@ const handleActivate = async () => {
   isError.value = false;
 
   try {
-    const res = await axios.post('/api/v1/user/activate', {
+    const res = await axios.post('/starface/api/v1/user/activate', {
       code: code.value,
       deviceId: getDeviceId()
     });
@@ -88,7 +88,7 @@ const handleActivate = async () => {
 .modal-overlay {
   position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0,0,0,0.8);
+  background: rgba(0,0,0,0.5);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -97,22 +97,23 @@ const handleActivate = async () => {
 }
 
 .modal {
-  background: #2a2a2a;
+  background: #ffffff;
   padding: 30px;
   border-radius: 16px;
   width: 400px;
+  max-width: calc(100vw - 40px);
   text-align: center;
-  border: 1px solid #444;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  border: 1px solid #e0e3e8;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.15);
 }
 
 h2 {
-  color: #fff;
+  color: #1a1a2e;
   margin-bottom: 10px;
 }
 
 .desc {
-  color: #aaa;
+  color: #666;
   font-size: 14px;
   margin-bottom: 20px;
 }
@@ -120,26 +121,26 @@ h2 {
 .code-input {
   width: 100%;
   padding: 12px;
-  background: #111;
-  border: 1px solid #444;
-  color: #fff;
+  background: #f4f5f7;
+  border: 1px solid #d0d3d8;
+  color: #1a1a2e;
   border-radius: 8px;
   font-family: monospace;
   font-size: 18px;
   text-align: center;
   letter-spacing: 2px;
-  margin-bottom: 5px; /* Reduced margin to stick closer to contact info */
+  margin-bottom: 5px;
 }
 
 .code-input:focus {
-  border-color: #00ff88;
+  border-color: #7c4dff;
   outline: none;
 }
 
 .contact-info-prominent {
   margin-bottom: 20px;
   font-size: 14px;
-  color: #ccc;
+  color: #666;
 }
 
 .contact-info-prominent p {
@@ -149,10 +150,10 @@ h2 {
 .activate-btn {
   width: 100%;
   padding: 12px;
-  background: linear-gradient(90deg, #00ff88, #00cc6a);
+  background: linear-gradient(90deg, #00cc6a, #00aa55);
   border: none;
   font-weight: bold;
-  color: #000;
+  color: #fff;
   border-radius: 8px;
   cursor: pointer;
   font-size: 16px;
@@ -171,7 +172,7 @@ h2 {
 .status-msg {
   height: 20px;
   font-size: 14px;
-  color: #00ff88;
+  color: #00aa55;
   margin-bottom: 10px;
 }
 
@@ -180,7 +181,7 @@ h2 {
 }
 
 .highlight {
-  color: #00ff88;
+  color: #7c4dff;
   font-weight: bold;
   font-size: 16px;
 }

@@ -53,7 +53,7 @@ const updateBatch = (index, value) => {
 
 <style scoped>
 .fusion-control {
-  background: #222;
+  background: #f0f2f5;
   padding: 20px;
   border-radius: 12px;
   margin-bottom: 20px;
@@ -61,7 +61,7 @@ const updateBatch = (index, value) => {
 
 .mode-switch {
   display: flex;
-  background: #111;
+  background: #e0e3e8;
   border-radius: 8px;
   padding: 4px;
   margin-bottom: 20px;
@@ -72,7 +72,7 @@ const updateBatch = (index, value) => {
   flex: 1;
   background: transparent;
   border: none;
-  color: #666;
+  color: #999;
   padding: 8px;
   cursor: pointer;
   border-radius: 6px;
@@ -80,8 +80,8 @@ const updateBatch = (index, value) => {
 }
 
 .mode-switch button.active {
-  background: #333;
-  color: #fff;
+  background: #ffffff;
+  color: #1a1a2e;
   font-weight: bold;
 }
 
@@ -101,7 +101,7 @@ const updateBatch = (index, value) => {
   background: #fff;
   border-radius: 50%;
   cursor: pointer;
-  box-shadow: 0 0 10px rgba(0,0,0,0.5);
+  box-shadow: 0 0 10px rgba(0,0,0,0.2);
 }
 
 .slider-labels {
@@ -124,7 +124,7 @@ const updateBatch = (index, value) => {
   align-items: center;
   gap: 10px;
   margin-bottom: 10px;
-  color: #ccc;
+  color: #555;
   font-size: 12px;
 }
 </style>

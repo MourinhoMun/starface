@@ -73,7 +73,7 @@ const generateAI = () => {
 
 .label {
   font-size: 14px;
-  color: #aaa;
+  color: #555;
 }
 
 .actions {
@@ -99,9 +99,9 @@ const generateAI = () => {
 
 .text-input {
   width: 100%;
-  background: #2a2a2a;
-  border: 1px solid #444;
-  color: #fff;
+  background: #ffffff;
+  border: 1px solid #d0d3d8;
+  color: #1a1a2e;
   padding: 10px;
   border-radius: 6px;
   font-size: 14px;

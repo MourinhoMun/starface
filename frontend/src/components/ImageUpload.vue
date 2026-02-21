@@ -43,8 +43,8 @@ const handleFileChange = (event) => {
 .upload-area {
   width: 100%;
   height: 300px;
-  background: #1a1a1a;
-  border: 2px dashed #444;
+  background: #f8f9fb;
+  border: 2px dashed #d0d3d8;
   border-radius: 12px;
   display: flex;
   align-items: center;
@@ -55,13 +55,13 @@ const handleFileChange = (event) => {
 }
 
 .upload-area:hover {
-  border-color: #00ff88;
-  background: #222;
+  border-color: #7c4dff;
+  background: #f0eeff;
 }
 
 .upload-placeholder {
   text-align: center;
-  color: #888;
+  color: #999;
 }
 
 .icon-upload {

@@ -32,10 +32,10 @@ const emit = defineEmits(['generate', 'update:prompts']);
 
 <style scoped>
 .prompt-preview {
-  background: #1e1e1e;
+  background: #ffffff;
   padding: 20px;
   border-radius: 12px;
-  border: 1px solid #333;
+  border: 1px solid #e0e3e8;
 }
 
 .header {
@@ -43,10 +43,12 @@ const emit = defineEmits(['generate', 'update:prompts']);
   justify-content: space-between;
   align-items: center;
   margin-bottom: 20px;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 h3 {
-  color: #fff;
+  color: #1a1a2e;
   font-size: 18px;
   margin: 0;
 }
@@ -63,7 +65,7 @@ h3 {
   display: flex;
   align-items: center;
   gap: 10px;
-  box-shadow: 0 4px 15px rgba(255, 77, 77, 0.4);
+  box-shadow: 0 4px 15px rgba(255, 77, 77, 0.3);
   transition: transform 0.2s;
 }
 
@@ -77,7 +79,7 @@ h3 {
 }
 
 .cost {
-  background: rgba(0,0,0,0.3);
+  background: rgba(0,0,0,0.2);
   padding: 2px 8px;
   border-radius: 10px;
   font-size: 12px;
@@ -90,21 +92,21 @@ h3 {
 }
 
 .prompt-item {
-  background: #252525;
+  background: #f8f9fb;
   padding: 15px;
   border-radius: 8px;
   border-left: 4px solid #7c4dff;
 }
 
 .prompt-title {
-  color: #aaa;
+  color: #666;
   font-size: 12px;
   margin-bottom: 10px;
   font-weight: bold;
 }
 
 label {
-  color: #666;
+  color: #888;
   font-size: 12px;
   display: block;
   margin-bottom: 4px;
@@ -112,9 +114,9 @@ label {
 
 textarea {
   width: 100%;
-  background: #111;
-  border: 1px solid #333;
-  color: #ddd;
+  background: #ffffff;
+  border: 1px solid #d0d3d8;
+  color: #333;
   padding: 8px;
   border-radius: 4px;
   font-family: monospace;
@@ -129,8 +131,8 @@ textarea:focus {
 }
 
 .negative {
-  border-color: #442222;
-  background: #1a1111;
-  color: #ff8888;
+  border-color: #ffcccc;
+  background: #fff5f5;
+  color: #cc4444;
 }
 </style>
