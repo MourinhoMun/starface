@@ -203,7 +203,7 @@ const handleGenerate = async () => {
 
   isGenerating.value = true;
   try {
-    const token = localStorage.getItem('auth_token');
+    const token = localStorage.getItem('pengip_token');
     const res = await axios.post(`${API_URL}/proxy/generate`, {
       batch_size: mode.value === 'single' ? 1 : 5,
       prompts: generatedPrompts.value,
@@ -224,7 +224,7 @@ const handleGenerate = async () => {
 };
 
 const fetchHistory = async () => {
-  const token = localStorage.getItem('auth_token');
+  const token = localStorage.getItem('pengip_token');
   if (!token) return;
   
   try {
@@ -247,7 +247,7 @@ watch(showHistory, (val) => {
 });
 
 onMounted(async () => {
-  const token = localStorage.getItem('auth_token');
+  const token = localStorage.getItem('pengip_token');
   if (token) {
     try {
       const res = await axios.get(`${API_URL}/user/balance`, {

@@ -43,10 +43,10 @@ const loading = ref(false);
 
 // Generate or get persistent Device ID
 const getDeviceId = () => {
-  let mid = localStorage.getItem('device_id');
+  let mid = localStorage.getItem('pengip_device_id');
   if (!mid) {
-    mid = 'device-' + Math.random().toString(36).substr(2, 9);
-    localStorage.setItem('device_id', mid);
+    mid = crypto.randomUUID();
+    localStorage.setItem('pengip_device_id', mid);
   }
   return mid;
 };
@@ -70,7 +70,7 @@ const handleActivate = async () => {
 
     if (res.data.success) {
       statusMsg.value = "激活成功！";
-      localStorage.setItem('auth_token', res.data.token);
+      localStorage.setItem('pengip_token', res.data.token);
       emit('activated', res.data.user);
       setTimeout(() => emit('close'), 1500);
     }
