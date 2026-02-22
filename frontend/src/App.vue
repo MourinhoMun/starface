@@ -157,20 +157,29 @@ const handleActivated = (data) => {
 
 // Prompt Generation Logic
 const generatePromptText = (ratio) => {
-  const userW = (parseInt(ratio) / 100).toFixed(1);
-  const starW = (1 - userW).toFixed(1);
-  
-  const clothing = styling.clothing.keep ? "same clothing" : (styling.clothing.text || "elegant");
-  const bg = styling.background.keep ? "same background" : (styling.background.text || "studio");
-  const hair = styling.hair.keep ? "" : (styling.hair.text ? `, hair: ${styling.hair.text}` : "");
-  const pose = styling.pose.keep ? "" : (styling.pose.text ? `, pose: ${styling.pose.text}` : "");
+  const userPct = parseInt(ratio);
+  const starPct = 100 - userPct;
+  const starLabel = starName.value || 'the celebrity';
 
-  return `(Masterpiece, 1k), mixing [User]:${userW} and ${starName.value || 'Star'}:${starW}${hair}${pose}, wearing ${clothing}, background: ${bg}, (photorealistic:1.4)`;
+  const clothing = styling.clothing.keep
+    ? 'wearing the same clothing as in the original photo'
+    : (styling.clothing.text ? `wearing ${styling.clothing.text}` : 'wearing elegant attire');
+  const bg = styling.background.keep
+    ? 'Keep the original background unchanged.'
+    : (styling.background.text ? `Place the subject against a ${styling.background.text} background.` : 'Place the subject against a clean studio background.');
+  const hair = styling.hair.keep
+    ? ''
+    : (styling.hair.text ? ` Style the hair as ${styling.hair.text}.` : '');
+  const pose = styling.pose.keep
+    ? ''
+    : (styling.pose.text ? ` The subject should be ${styling.pose.text}.` : '');
+
+  return `Naturally blend the face of the person in the uploaded photo (${userPct}% influence) with the appearance of ${starLabel} (${starPct}% influence). The result must look like a real human being — not AI-generated or CGI. Preserve completely natural skin texture: visible pores, fine surface hair, subtle color variations, realistic skin sheen, minor natural imperfections such as small blemishes or capillaries. Do not smooth, airbrush, or beautify the skin in any way. The face must look photorealistic with natural depth, accurate lighting, and consistent skin tone. ${clothing} ${bg}${hair}${pose} Output at 1024x1024 resolution.`;
 };
 
 const updatePrompts = () => {
   const newPrompts = [];
-  const negative = "(worst quality:1.4), lowres, bad anatomy, error, watermark";
+  const negative = "deformed, blurry, bad anatomy, disfigured, mutation, extra limbs, watermark, oversmoothed skin, airbrushed, plastic skin, fake, CGI, illustration";
 
   if (mode.value === 'single') {
     newPrompts.push({

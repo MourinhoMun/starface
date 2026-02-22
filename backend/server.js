@@ -196,7 +196,7 @@ app.post('/api/v1/proxy/generate', authenticateToken, async (req, res) => {
     const results = [];
     for (const p of prompts) {
         try {
-            const fullPrompt = `Please edit this image based on the instructions: ${p.positive}. Negative prompt: ${p.negative}`;
+            const fullPrompt = `${p.positive}\n\nCRITICAL REQUIREMENTS: The output must look completely photorealistic — like a real photograph, not AI-generated. Skin must have visible pores, fine surface hair, subtle texture and color variations, and natural imperfections. Do not smooth, airbrush, or apply any beauty filter. The lighting should be natural and consistent. Avoid any plastic, waxy, or CGI-like appearance. Output at 1024x1024 resolution.`;
             const imgData = await callGeminiImage(fullPrompt, userImageBase64);
 
             if (imgData) {
