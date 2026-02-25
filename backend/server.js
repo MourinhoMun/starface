@@ -65,39 +65,55 @@ const callGeminiText = async (prompt) => {
     throw new Error('No text response');
 };
 
-// --- Helper: Call Gemini Image ---
-const callGeminiImage = async (prompt, base64Image) => {
+// --- Helper: Call Gemini Image (with retry on 502/503) ---
+const callGeminiImage = async (prompt, base64Image, retries = 2) => {
     const match = base64Image.match(/^data:(image\/\w+);base64,/);
     const mimeType = match ? match[1] : 'image/jpeg';
     const cleanBase64 = base64Image.replace(/^data:image\/\w+;base64,/, '');
 
-    const res = await axios.post(
-        `https://yunwu.ai/v1beta/models/gemini-3-pro-image-preview:generateContent?key=${AI_API_KEY}`,
-        {
-            contents: [{
-                role: 'user',
-                parts: [
-                    { text: prompt },
-                    { inline_data: { mime_type: mimeType, data: cleanBase64 } }
-                ]
-            }]
-        },
-        { headers: { 'Content-Type': 'application/json' } }
-    );
+    let lastError;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+        if (attempt > 0) {
+            console.log(`[GeminiImage] Retry ${attempt}/${retries} after 2s (prev error: ${lastError?.message})`);
+            await new Promise(r => setTimeout(r, 2000));
+        }
+        try {
+            const res = await axios.post(
+                `https://yunwu.ai/v1beta/models/gemini-3-pro-image-preview:generateContent?key=${AI_API_KEY}`,
+                {
+                    contents: [{
+                        role: 'user',
+                        parts: [
+                            { text: prompt },
+                            { inline_data: { mime_type: mimeType, data: cleanBase64 } }
+                        ]
+                    }]
+                },
+                { headers: { 'Content-Type': 'application/json' } }
+            );
 
-    const candidates = res.data?.candidates || [];
-    console.log('[GeminiImage] candidates:', candidates.length, '| finishReason:', candidates[0]?.finishReason);
-    if (candidates.length > 0) {
-        const parts = candidates[0].content?.parts || [];
-        console.log('[GeminiImage] parts:', parts.map(p => p.inline_data ? 'inline_data' : p.inlineData ? 'inlineData' : `text(${p.text?.substring(0,80)})`));
-        for (const part of parts) {
-            if (part.inline_data) return `data:${part.inline_data.mime_type};base64,${part.inline_data.data}`;
-            if (part.inlineData) return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
-            if (part.text?.startsWith('data:') || part.text?.startsWith('http')) return part.text;
+            const candidates = res.data?.candidates || [];
+            console.log('[GeminiImage] candidates:', candidates.length, '| finishReason:', candidates[0]?.finishReason);
+            if (candidates.length > 0) {
+                const parts = candidates[0].content?.parts || [];
+                console.log('[GeminiImage] parts:', parts.map(p => p.inline_data ? 'inline_data' : p.inlineData ? 'inlineData' : `text(${p.text?.substring(0,80)})`));
+                for (const part of parts) {
+                    if (part.inline_data) return `data:${part.inline_data.mime_type};base64,${part.inline_data.data}`;
+                    if (part.inlineData) return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+                    if (part.text?.startsWith('data:') || part.text?.startsWith('http')) return part.text;
+                }
+            }
+            console.log('[GeminiImage] no image data found, raw response:', JSON.stringify(res.data).substring(0, 300));
+            return null;
+        } catch (e) {
+            const status = e.response?.status;
+            if ((status === 502 || status === 503) && attempt < retries) {
+                lastError = e;
+                continue;
+            }
+            throw e;
         }
     }
-    console.log('[GeminiImage] no image data found, raw response:', JSON.stringify(res.data).substring(0, 300));
-    return null;
 };
 
 // --- Helper: Save Base64 to File ---
