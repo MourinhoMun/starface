@@ -79,7 +79,7 @@ const callGeminiImage = async (prompt, base64Image, retries = 2) => {
         }
         try {
             const res = await axios.post(
-                `https://yunwu.ai/v1beta/models/gemini-3-pro-image-preview:generateContent?key=${AI_API_KEY}`,
+        `https://yunwu.ai/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key=${AI_API_KEY}`,
                 {
                     contents: [{
                         role: 'user',

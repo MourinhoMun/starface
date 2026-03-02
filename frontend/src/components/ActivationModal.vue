@@ -14,8 +14,8 @@
         />
       </div>
 
-       <div class="contact-info-prominent">
-        <p>如需获取激活码，请添加鹏哥微信：<span class="highlight">peng_ip</span></p>
+      <div class="contact-info-prominent">
+        <p>请联系鹏哥微信：<span class="highlight">Peng_IP</span> 购买年卡或者获得7天试用</p>
       </div>
 
       <div class="status-msg" :class="{ error: isError }">{{ statusMsg }}</div>
