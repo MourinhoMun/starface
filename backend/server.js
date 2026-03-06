@@ -32,10 +32,21 @@ const authenticateToken = async (req, res, next) => {
     if (!authHeader) return res.sendStatus(401);
 
     try {
-        await axios.get(`${LICENSE_BACKEND_URL}/api/v1/user/balance`, {
-            headers: { Authorization: authHeader }
+        const r = await axios.get(`${LICENSE_BACKEND_URL}/api/v1/user/balance`, {
+            headers: { Authorization: authHeader },
+            validateStatus: () => true,
         });
-        req.authHeader = authHeader;
+        if (r.status === 200 && r.data?.userId) {
+            req.authHeader = authHeader;
+            req.userId = r.data.userId;
+            return next();
+        }
+        // Back-compat: if balance endpoint doesn't return userId, still allow but refund won't work.
+        if (r.status === 200) {
+            req.authHeader = authHeader;
+            return next();
+        }
+        if (r.status === 401 || r.status === 403) return res.status(r.status).json({ error: r.data?.error || 'Invalid token' });
         next();
     } catch (err) {
         const status = err.response?.status;
@@ -48,8 +59,20 @@ const authenticateToken = async (req, res, next) => {
 const deductPoints = (authHeader, software) => {
     axios.post(`${LICENSE_BACKEND_URL}/api/v1/proxy/use`,
         { software },
-        { headers: { Authorization: authHeader, 'Content-Type': 'application/json' } }
-    ).catch(err => console.error('Deduct points failed:', err.response?.data || err.message));
+        { headers: { Authorization: authHeader, 'Content-Type': 'application/json' }, validateStatus: () => true }
+    ).then((r) => {
+        if (r.status !== 200) {
+            console.error('Deduct points failed:', r.data || `HTTP ${r.status}`);
+        }
+    }).catch(err => console.error('Deduct points failed:', err.response?.data || err.message));
+};
+
+const refundPoints = (authHeader, userId, amount, relatedId, reason) => {
+    const secret = process.env.INTERNAL_REFUND_SECRET || '';
+    return axios.post(`${LICENSE_BACKEND_URL}/api/v1/points/refund`,
+        { userId, amount, relatedId, reason },
+        { headers: { 'x-internal-refund-secret': secret, Authorization: authHeader, 'Content-Type': 'application/json' }, validateStatus: () => true }
+    );
 };
 
 // --- Helper: Call Gemini Text ---
@@ -65,17 +88,25 @@ const callGeminiText = async (prompt) => {
     throw new Error('No text response');
 };
 
-// --- Helper: Call Gemini Image (with retry on 502/503) ---
-const callGeminiImage = async (prompt, base64Image, retries = 2) => {
+// --- Helper: Call Gemini Image (with retry / backoff on 429/502/503) ---
+const callGeminiImage = async (prompt, base64Image, base64Image2 = null, retries = 4) => {
     const match = base64Image.match(/^data:(image\/\w+);base64,/);
     const mimeType = match ? match[1] : 'image/jpeg';
     const cleanBase64 = base64Image.replace(/^data:image\/\w+;base64,/, '');
 
+    const match2 = base64Image2 ? base64Image2.match(/^data:(image\/\w+);base64,/) : null;
+    const mimeType2 = match2 ? match2[1] : 'image/jpeg';
+    const cleanBase64_2 = base64Image2 ? base64Image2.replace(/^data:image\/\w+;base64,/, '') : null;
+
     let lastError;
     for (let attempt = 0; attempt <= retries; attempt++) {
         if (attempt > 0) {
-            console.log(`[GeminiImage] Retry ${attempt}/${retries} after 2s (prev error: ${lastError?.message})`);
-            await new Promise(r => setTimeout(r, 2000));
+            const status = lastError?.response?.status;
+            // Exponential backoff with jitter; be gentler on 429.
+            const baseDelayMs = status === 429 ? 2500 : 1500;
+            const delayMs = Math.min(15000, baseDelayMs * Math.pow(2, attempt - 1)) + Math.floor(Math.random() * 400);
+            console.log(`[GeminiImage] Retry ${attempt}/${retries} after ${delayMs}ms (prev status: ${status || 'n/a'} | ${lastError?.message})`);
+            await new Promise(r => setTimeout(r, delayMs));
         }
         try {
             const res = await axios.post(
@@ -85,7 +116,8 @@ const callGeminiImage = async (prompt, base64Image, retries = 2) => {
                         role: 'user',
                         parts: [
                             { text: prompt },
-                            { inline_data: { mime_type: mimeType, data: cleanBase64 } }
+                            { inline_data: { mime_type: mimeType, data: cleanBase64 } },
+                            ...(cleanBase64_2 ? [{ inline_data: { mime_type: mimeType2, data: cleanBase64_2 } }] : [])
                         ]
                     }]
                 },
@@ -98,22 +130,29 @@ const callGeminiImage = async (prompt, base64Image, retries = 2) => {
                 const parts = candidates[0].content?.parts || [];
                 console.log('[GeminiImage] parts:', parts.map(p => p.inline_data ? 'inline_data' : p.inlineData ? 'inlineData' : `text(${p.text?.substring(0,80)})`));
                 for (const part of parts) {
-                    if (part.inline_data) return `data:${part.inline_data.mime_type};base64,${part.inline_data.data}`;
-                    if (part.inlineData) return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
-                    if (part.text?.startsWith('data:') || part.text?.startsWith('http')) return part.text;
+                    if (part.inline_data) return { dataUrl: `data:${part.inline_data.mime_type};base64,${part.inline_data.data}` };
+                    if (part.inlineData) return { dataUrl: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}` };
+                    if (part.text?.startsWith('data:') || part.text?.startsWith('http')) return { dataUrl: part.text };
                 }
+
+                const finishReason = candidates[0]?.finishReason;
+                const finishMessage = candidates[0]?.finishMessage;
+                const textParts = parts.filter(p => typeof p.text === 'string').map(p => p.text).join('\n');
+                return { dataUrl: null, error: { finishReason, finishMessage, text: textParts.substring(0, 300) } };
             }
             console.log('[GeminiImage] no image data found, raw response:', JSON.stringify(res.data).substring(0, 300));
-            return null;
+            return { dataUrl: null, error: { finishReason: 'NO_IMAGE', finishMessage: 'No image returned', text: JSON.stringify(res.data).substring(0, 300) } };
         } catch (e) {
             const status = e.response?.status;
-            if ((status === 502 || status === 503) && attempt < retries) {
+            // Retry 429/502/503 with backoff
+            if ((status === 429 || status === 502 || status === 503) && attempt < retries) {
                 lastError = e;
                 continue;
             }
             throw e;
         }
     }
+    return { dataUrl: null, error: { finishReason: 'RETRY_EXHAUSTED', finishMessage: 'Retries exhausted' } };
 };
 
 // --- Helper: Save Base64 to File ---
@@ -178,7 +217,7 @@ app.post('/api/v1/proxy/ai-suggestion', authenticateToken, async (req, res) => {
 
 // 4. Image Generation – single: 10pts (mystarface_generate), batch x5: 50pts (mystarface_generate_batch)
 app.post('/api/v1/proxy/generate', authenticateToken, async (req, res) => {
-    const { prompts, userImageBase64 } = req.body;
+    const { prompts, userImageBase64, userImageBase64_2 } = req.body;
 
     if (!prompts?.length || !userImageBase64) {
         return res.status(400).json({ error: 'Missing prompts or image' });
@@ -201,33 +240,54 @@ app.post('/api/v1/proxy/generate', authenticateToken, async (req, res) => {
         // network error: graceful degradation
     }
 
-    // Batch mode: deduct 50 points upfront in one call
+    // Batch mode: deduct 50 points upfront in one call.
+    // Later we will refund the difference based on how many images actually succeeded.
     if (isBatch) {
-        await axios.post(`${LICENSE_BACKEND_URL}/api/v1/proxy/use`,
+        const d = await axios.post(`${LICENSE_BACKEND_URL}/api/v1/proxy/use`,
             { software: 'mystarface_generate_batch' },
-            { headers: { Authorization: req.authHeader, 'Content-Type': 'application/json' } }
-        ).catch(err => console.error('Batch deduct failed:', err.response?.data || err.message));
+            { headers: { Authorization: req.authHeader, 'Content-Type': 'application/json' }, validateStatus: () => true }
+        ).catch(err => ({ status: err.response?.status || 500, data: err.response?.data || { error: err.message } }));
+
+        if (d.status !== 200) {
+            return res.status(402).json({ error: d.data?.error || '积分扣除失败，请稍后重试' });
+        }
     }
 
     const results = [];
     for (const p of prompts) {
         try {
             const fullPrompt = `${p.positive}\n\nCRITICAL REQUIREMENTS: The output must look completely photorealistic — like a real photograph, not AI-generated. Skin must have visible pores, fine surface hair, subtle texture and color variations, and natural imperfections. Do not smooth, airbrush, or apply any beauty filter. The lighting should be natural and consistent. Avoid any plastic, waxy, or CGI-like appearance. Output at 1024x1024 resolution.`;
-            const imgData = await callGeminiImage(fullPrompt, userImageBase64);
+            const img = await callGeminiImage(fullPrompt, userImageBase64, userImageBase64_2);
 
-            if (imgData) {
-                const savedUrl = saveImageLocally('user', imgData);
-                results.push(savedUrl || imgData);
+            if (img?.dataUrl) {
+                const savedUrl = saveImageLocally('user', img.dataUrl);
+                results.push({ ok: true, url: savedUrl || img.dataUrl });
                 // Single mode: deduct per image after success
                 if (!isBatch) {
                     deductPoints(req.authHeader, 'mystarface_generate');
                 }
             } else {
-                results.push(null);
+                results.push({ ok: false, error: img?.error || { finishReason: 'NO_IMAGE' } });
             }
         } catch (e) {
-            console.error(`Image gen error (prompt index ${results.length}):`, e.message);
-            results.push(null);
+            const status = e.response?.status;
+            console.error(`Image gen error (prompt index ${results.length}):`, status ? `HTTP ${status}` : e.message);
+            results.push({ ok: false, error: { httpStatus: status, message: e.response?.data?.error?.message || e.message } });
+        }
+    }
+
+    // Refund logic for batch: charged 50 upfront, final price is 10 * successCount
+    if (isBatch && req.userId) {
+        const successCount = results.filter(r => r && r.ok).length;
+        const shouldCharge = 10 * successCount;
+        const toRefund = Math.max(0, 50 - shouldCharge);
+
+        if (toRefund > 0) {
+            const relatedId = `starface_batch_${Date.now()}_${uuidv4()}`;
+            const rr = await refundPoints(req.authHeader, req.userId, toRefund, relatedId, `StarFace batch refund: success=${successCount}/5`).catch((e) => ({ status: e.response?.status || 500, data: e.response?.data }));
+            if (rr.status !== 200) {
+                console.error('Refund failed:', rr.data || `HTTP ${rr.status}`);
+            }
         }
     }
 

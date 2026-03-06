@@ -19,8 +19,17 @@
 
     <main>
       <div class="panel left" :class="{ 'mobile-hidden': mobileTab !== 'settings' }">
-        <div class="section-tip">上传一张你的正面清晰照片，AI 会将你的面部特征与明星融合。<br><span class="tip-scene">适合场景：想看看自己和偶像融合后的效果，或制作个性化头像。</span></div>
+        <div class="section-tip">上传照片：
+          <br>• 只上传第1张：AI 会将你的面部特征与“明星名字”融合（可能会触发合规限制导致失败）。
+          <br>• 上传第1张 + 第2张：进入“双人融合”模式（更稳定）。
+          <br><span class="tip-scene">建议：正脸、光线均匀、无遮挡、不要过度美颜。</span>
+        </div>
         <ImageUpload @update:image="handleImageUpload" />
+        <div class="form-group">
+          <label>第二张照片（可选，用于两张照片融合）</label>
+          <div class="field-tip">上传第二张后，系统会优先按“两张照片融合”生成，不再依赖明星名字。</div>
+          <ImageUpload @update:image="handleImageUpload2" />
+        </div>
 
         <div class="form-group">
           <label>想融合的明星 (Star Name)</label>
@@ -83,9 +92,17 @@
 
             <!-- Results -->
             <div v-if="results.length > 0" class="results-grid">
-              <div v-for="(img, idx) in results.filter(r => r)" :key="idx" class="result-card">
-                <img :src="img" />
-                <a :href="img" download class="download-btn">⬇</a>
+              <div v-for="(img, idx) in results" :key="idx" class="result-card">
+                <template v-if="img">
+                  <img :src="img" />
+                  <a :href="img" download class="download-btn">⬇</a>
+                </template>
+                <template v-else>
+                  <div class="fail-card">
+                    <div class="fail-title">生成失败</div>
+                    <div class="fail-reason">{{ resultErrors[idx] || '未知原因' }}</div>
+                  </div>
+                </template>
               </div>
               <p v-if="results.every(r => !r)" style="color:#f55; text-align:center; width:100%;">所有图片生成失败，请重试</p>
             </div>
@@ -122,6 +139,7 @@ const mobileTab = ref('settings');
 const historyImages = ref([]);
 
 const userImage = ref(null);
+const userImage2 = ref(null);
 const starName = ref('');
 const mode = ref('single');
 const singleRatio = ref(50);
@@ -136,6 +154,7 @@ const styling = reactive({
 
 const generatedPrompts = ref([]);
 const results = ref([]);
+const resultErrors = ref([]);
 
 // Mock API URL (Dev)
 // In production, this would be relative or configured
@@ -143,12 +162,19 @@ const API_URL = '/starface/api/v1';
 
 // Computed
 const estimatedCost = computed(() => {
-  return mode.value === 'single' ? 10 : 50;
+  const count = mode.value === 'single' ? 1 : 5;
+  // Single: 10 pts per image. Batch: 50 pts per 5 images.
+  // If two-photo fusion is used, pricing remains the same.
+  return count === 1 ? 10 : 50;
 });
 
 // Logic
 const handleImageUpload = (img) => {
   userImage.value = img;
+};
+
+const handleImageUpload2 = (img) => {
+  userImage2.value = img;
 };
 
 const handleActivated = (data) => {
@@ -159,6 +185,7 @@ const handleActivated = (data) => {
 const generatePromptText = (ratio) => {
   const userPct = parseInt(ratio);
   const starPct = 100 - userPct;
+  const hasSecond = !!userImage2.value;
   const starLabel = starName.value || 'the celebrity';
 
   const clothing = styling.clothing.keep
@@ -173,6 +200,10 @@ const generatePromptText = (ratio) => {
   const pose = styling.pose.keep
     ? ''
     : (styling.pose.text ? ` The subject should be ${styling.pose.text}.` : '');
+
+  if (hasSecond) {
+    return `Blend the faces from IMAGE 1 (${userPct}% influence) and IMAGE 2 (${starPct}% influence) into a single, realistic new person. Keep both identities' key facial features while producing a coherent natural face. The result must look like a real human being — not AI-generated or CGI. Preserve completely natural skin texture: visible pores, fine surface hair, subtle color variations, realistic skin sheen, minor natural imperfections such as small blemishes or capillaries. Do not smooth, airbrush, or beautify the skin in any way. The face must look photorealistic with natural depth, accurate lighting, and consistent skin tone. ${clothing} ${bg}${hair}${pose} Output at 1024x1024 resolution.`;
+  }
 
   return `Naturally blend the face of the person in the uploaded photo (${userPct}% influence) with the appearance of ${starLabel} (${starPct}% influence). The result must look like a real human being — not AI-generated or CGI. Preserve completely natural skin texture: visible pores, fine surface hair, subtle color variations, realistic skin sheen, minor natural imperfections such as small blemishes or capillaries. Do not smooth, airbrush, or beautify the skin in any way. The face must look photorealistic with natural depth, accurate lighting, and consistent skin tone. ${clothing} ${bg}${hair}${pose} Output at 1024x1024 resolution.`;
 };
@@ -216,17 +247,45 @@ const handleGenerate = async () => {
     const res = await axios.post(`${API_URL}/proxy/generate`, {
       batch_size: mode.value === 'single' ? 1 : 5,
       prompts: generatedPrompts.value,
-      userImageBase64: userImage.value // Pass uploaded image data
+      userImageBase64: userImage.value, // Pass uploaded image data
+      userImageBase64_2: userImage2.value // Optional second image for two-photo fusion
     }, {
       headers: { Authorization: `Bearer ${token}` }
     });
 
-    results.value = res.data.images;
+    // Backend now returns richer per-image result objects: { ok, url } or { ok:false, error }
+    const imgs = res.data.images || [];
+    results.value = imgs.map((it) => {
+      if (!it) return null;
+      if (typeof it === 'string') return it;
+      if (it.ok && it.url) return it.url;
+      return null;
+    });
+
+    // Human-friendly error messages for failed items
+    resultErrors.value = imgs.map((it) => {
+      if (!it || typeof it === 'string') return null;
+      if (it.ok) return null;
+      const e = it.error || {};
+      const status = e.httpStatus;
+      const finishReason = e.finishReason;
+      const msgText = (e.finishMessage || e.message || e.text || '').toString();
+
+      if (status === 429) return '上游AI限流（请求太频繁），建议等10-30秒再试';
+      if (status === 502 || status === 503) return '上游AI通道临时故障（502/503），建议稍后重试';
+      if (msgText.toLowerCase().includes('specific real person') || msgText.includes('特定') || msgText.includes('明星')) {
+        return '模型拒绝：涉及指定真人/明星融合（合规限制）。建议改用“两张照片融合”模式';
+      }
+      if (finishReason === 'IMAGE_OTHER') return '模型未返回图片（IMAGE_OTHER）：提示词可能触发限制或不够清晰，建议换提示词/换图再试';
+      if (finishReason === 'STOP' && msgText) return `模型中止：${msgText.substring(0, 80)}`;
+      return msgText ? `生成失败：${msgText.substring(0, 80)}` : '生成失败：未知原因';
+    });
     balance.value = res.data.remaining_points;
     // Refresh history
     fetchHistory();
   } catch (err) {
-    alert(err.response?.data?.error || "生成失败");
+    const msg = err.response?.data?.error || "生成失败";
+    alert(msg);
   } finally {
     isGenerating.value = false;
   }
@@ -256,6 +315,18 @@ watch(showHistory, (val) => {
 });
 
 onMounted(async () => {
+  // 先尝试从主站获取 token
+  try {
+    const res = await axios.get('https://pengip.com/api/v1/user/token', { withCredentials: true });
+    if (res.data.token) {
+      localStorage.setItem('pengip_token', res.data.token);
+      balance.value = res.data.user.balance;
+      fetchHistory();
+      return;
+    }
+  } catch (e) {}
+  
+  // 如果主站没有，检查本地 token
   const token = localStorage.getItem('pengip_token');
   if (token) {
     try {
@@ -339,6 +410,20 @@ main {
 }
 
 .result-card img { width: 100%; height: 100%; object-fit: cover; }
+
+.fail-card {
+  width: 100%;
+  height: 100%;
+  background: #fff5f5;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 14px;
+  gap: 8px;
+}
+.fail-title { font-weight: 700; color: #c53030; font-size: 14px; }
+.fail-reason { font-size: 12px; color: #742a2a; line-height: 1.4; }
+
 .download-btn { position: absolute; bottom: 10px; right: 10px; background: rgba(0,0,0,0.7); color: #fff; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; text-decoration: none; }
 
 .history-btn {
