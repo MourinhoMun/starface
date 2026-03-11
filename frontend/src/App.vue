@@ -73,7 +73,8 @@
               <div v-for="(img, idx) in historyImages" :key="idx" class="result-card">
                  <img :src="img.imageUrl" />
                  <span class="date-label">{{ new Date(img.createdAt).toLocaleString() }}</span>
-                 <a :href="img.imageUrl" download class="download-btn">⬇</a>
+                 <!-- Use API URL so the download works regardless of relative path base -->
+                 <a :href="toAbsoluteApiUrl(img.imageUrl)" download class="download-btn">⬇</a>
               </div>
            </div>
         </div>
@@ -159,6 +160,15 @@ const resultErrors = ref([]);
 // Mock API URL (Dev)
 // In production, this would be relative or configured
 const API_URL = '/starface/api/v1';
+
+function toAbsoluteApiUrl(maybeRelativeUrl) {
+  if (!maybeRelativeUrl) return maybeRelativeUrl;
+  // If backend returns relative URLs (e.g. /api/v1/files/xxx), prefix with API base.
+  if (typeof maybeRelativeUrl === 'string' && maybeRelativeUrl.startsWith('/api/')) {
+    return `/starface${maybeRelativeUrl}`;
+  }
+  return maybeRelativeUrl;
+}
 
 // Computed
 const estimatedCost = computed(() => {
