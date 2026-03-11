@@ -10,10 +10,13 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 const LICENSE_BACKEND_URL = process.env.LICENSE_BACKEND_URL || 'https://pengip.com';
-// __EMBEDDED_AI_KEY__ is replaced at build time by build_release.bat
-// In dev, falls back to AI_API_KEY from .env
-const _EMBEDDED = '__EMBEDDED_AI_KEY__';
-const AI_API_KEY = _EMBEDDED.startsWith('__') ? (process.env.AI_API_KEY || '') : _EMBEDDED;
+
+// SaaS: never embed upstream API keys in build artifacts.
+// Only read from runtime environment.
+const AI_API_KEY = process.env.AI_API_KEY || '';
+if (!AI_API_KEY) {
+    throw new Error('AI_API_KEY is required');
+}
 
 // Ensure images dir exists
 const IMAGES_DIR = path.join(__dirname, 'public/images');
@@ -21,7 +24,30 @@ if (!fs.existsSync(IMAGES_DIR)) {
     fs.mkdirSync(IMAGES_DIR, { recursive: true });
 }
 
-app.use(cors());
+// Keep simple ownership mapping in-memory (best-effort). For stronger isolation,
+// migrate to a DB table (filename -> userId).
+const FILE_OWNERS = new Map();
+
+// SaaS: restrict CORS by allowlist (comma-separated). If unset, only allow localhost for dev.
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+
+app.use(cors({
+    origin: (origin, cb) => {
+        if (!origin) return cb(null, true);
+        if (ALLOWED_ORIGINS.length === 0) {
+            if (/^https?:\/\/localhost(?::\d+)?$/.test(origin) || /^https?:\/\/127\.0\.0\.1(?::\d+)?$/.test(origin)) {
+                return cb(null, true);
+            }
+            return cb(new Error('CORS: origin not allowed'));
+        }
+        if (ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+        return cb(new Error('CORS: origin not allowed'));
+    },
+    credentials: true,
+}));
 app.use(bodyParser.json({ limit: '10mb' }));
 app.use(bodyParser.urlencoded({ limit: '10mb', extended: true }));
 app.use('/images', express.static(IMAGES_DIR));
@@ -41,17 +67,18 @@ const authenticateToken = async (req, res, next) => {
             req.userId = r.data.userId;
             return next();
         }
-        // Back-compat: if balance endpoint doesn't return userId, still allow but refund won't work.
-        if (r.status === 200) {
-            req.authHeader = authHeader;
-            return next();
+        if (r.status === 401 || r.status === 403) {
+            return res.status(r.status).json({ error: r.data?.error || 'Invalid token' });
         }
-        if (r.status === 401 || r.status === 403) return res.status(r.status).json({ error: r.data?.error || 'Invalid token' });
-        next();
+        // SaaS: fail closed on unexpected responses.
+        return res.status(503).json({ error: '授权服务暂不可用，请稍后重试' });
     } catch (err) {
         const status = err.response?.status;
-        if (status === 401 || status === 403) return res.status(status).json({ error: err.response.data?.error || 'Invalid token' });
-        next(); // network error: graceful degradation, let through
+        if (status === 401 || status === 403) {
+            return res.status(status).json({ error: err.response.data?.error || 'Invalid token' });
+        }
+        // SaaS: fail closed on network errors.
+        return res.status(503).json({ error: '授权服务暂不可用，请稍后重试' });
     }
 };
 
@@ -161,9 +188,10 @@ function saveImageLocally(userId, dataUrl) {
     try {
         const [header, body] = dataUrl.split('base64,');
         const ext = (header.match(/data:(image\/\w+);/) || [])[1]?.split('/')[1] || 'png';
-        const filename = `${userId}-${Date.now()}-${uuidv4()}.${ext}`;
+        // Keep userId out of filenames to reduce info leakage.
+        const filename = `${Date.now()}-${uuidv4()}.${ext}`;
         fs.writeFileSync(path.join(IMAGES_DIR, filename), Buffer.from(body, 'base64'));
-        return `/starface-images/${filename}`;
+        return `/api/v1/files/${filename}`;
     } catch (e) {
         console.error('Failed to save image:', e);
         return null;
@@ -227,17 +255,20 @@ app.post('/api/v1/proxy/generate', authenticateToken, async (req, res) => {
     const COST_PER_IMAGE = 10;
     const totalCost = COST_PER_IMAGE * prompts.length;
 
-    // Pre-check balance
+    // Pre-check balance (SaaS: fail closed on backend errors)
     try {
         const balRes = await axios.get(`${LICENSE_BACKEND_URL}/api/v1/user/balance`, {
             headers: { Authorization: req.authHeader },
             validateStatus: () => true
         });
-        if (balRes.status !== 200 || balRes.data.balance < totalCost) {
+        if (balRes.status !== 200) {
+            return res.status(503).json({ error: '授权服务暂不可用，请稍后重试' });
+        }
+        if (balRes.data.balance < totalCost) {
             return res.status(402).json({ error: 'Insufficient points' });
         }
     } catch (e) {
-        // network error: graceful degradation
+        return res.status(503).json({ error: '授权服务暂不可用，请稍后重试' });
     }
 
     // Batch mode: deduct 50 points upfront in one call.
@@ -260,7 +291,11 @@ app.post('/api/v1/proxy/generate', authenticateToken, async (req, res) => {
             const img = await callGeminiImage(fullPrompt, userImageBase64, userImageBase64_2);
 
             if (img?.dataUrl) {
-                const savedUrl = saveImageLocally('user', img.dataUrl);
+                const savedUrl = saveImageLocally(req.userId || 'unknown', img.dataUrl);
+                if (savedUrl && req.userId) {
+                    const filename = savedUrl.split('/').pop();
+                    if (filename) FILE_OWNERS.set(filename, req.userId);
+                }
                 results.push({ ok: true, url: savedUrl || img.dataUrl });
                 // Single mode: deduct per image after success
                 if (!isBatch) {
@@ -303,13 +338,32 @@ app.post('/api/v1/proxy/generate', authenticateToken, async (req, res) => {
     });
 });
 
-// 5. History - list saved images
+// 5. Files - authenticated download (avoid public static exposure)
+app.get('/api/v1/files/:filename', authenticateToken, (req, res) => {
+    const filename = req.params.filename;
+    const owner = FILE_OWNERS.get(filename);
+    if (!owner || !req.userId || owner !== req.userId) {
+        return res.status(404).json({ error: 'File not found' });
+    }
+
+    const filePath = path.join(IMAGES_DIR, filename);
+    if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ error: 'File not found' });
+    }
+
+    return res.sendFile(filePath);
+});
+
+// 6. History - list saved images (per-user)
 app.get('/api/v1/user/history', authenticateToken, (req, res) => {
     try {
+        if (!req.userId) return res.status(401).json({ error: 'Unauthorized' });
+
         const files = fs.readdirSync(IMAGES_DIR)
             .filter(f => /\.(png|jpg|jpeg|webp)$/i.test(f))
+            .filter(f => FILE_OWNERS.get(f) === req.userId)
             .map(f => ({
-                imageUrl: `https://pengip.com/starface-images/${f}`,
+                imageUrl: `/api/v1/files/${f}`,
                 createdAt: fs.statSync(path.join(IMAGES_DIR, f)).mtimeMs
             }))
             .sort((a, b) => b.createdAt - a.createdAt)
