@@ -44,6 +44,21 @@
           v-model:batchRatios="batchRatios"
         />
 
+        <div class="form-group">
+          <label>输出分辨率</label>
+          <div class="field-tip">1K 更快更省；2K 更清晰（15 积分/张）。</div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+            <label style="display:flex;gap:6px;align-items:center;cursor:pointer;">
+              <input type="radio" value="1k" v-model="outputResolution" />
+              <span>1K（10积分/张）</span>
+            </label>
+            <label style="display:flex;gap:6px;align-items:center;cursor:pointer;">
+              <input type="radio" value="2k" v-model="outputResolution" />
+              <span>2K（15积分/张）</span>
+            </label>
+          </div>
+        </div>
+
         <div class="section-tip">自定义服装、背景、发型和姿势，让生成结果更符合你的想象。<br><span class="tip-scene">不填则 AI 自动决定；勾选"保持原图"则保留你照片中的原始元素；点击"随机日常"可快速获得灵感。</span></div>
         <SceneStyling :modelValue="styling" />
 
@@ -114,8 +129,66 @@
       </div>
     </main>
 
-    <ActivationModal 
-      :isOpen="showActivation" 
+    <!-- 肖像权专项免责声明（每次会话必须确认） -->
+    <div v-if="showDisclaimer" style="position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.75);display:flex;align-items:center;justify-content:center;padding:1rem;">
+      <div style="background:#fff;border-radius:16px;max-width:580px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.4);">
+        <div style="padding:1.5rem 1.75rem 1rem;border-bottom:1px solid #ede9fe;background:#f5f3ff;border-radius:16px 16px 0 0;">
+          <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem;">
+            <span style="font-size:1.75rem;">⚠️</span>
+            <div>
+              <h2 style="font-size:1.2rem;font-weight:800;color:#4c1d95;margin:0;">肖像权与AI合规使用声明</h2>
+              <p style="font-size:0.8rem;color:#6d28d9;margin:0.2rem 0 0;">My Star Face · 每次使用前必须阅读并同意</p>
+            </div>
+          </div>
+        </div>
+        <div ref="disclaimerContentRef" @scroll="handleDisclaimerScroll" style="flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:1.25rem 1.75rem;color:#1e293b;font-size:0.88rem;line-height:1.75;">
+          <p style="font-weight:700;color:#7c3aed;margin:0 0 1rem;">请认真阅读以下全部内容。滚动至底部后方可勾选同意。</p>
+
+          <h3 style="font-size:0.95rem;font-weight:700;color:#1e293b;margin:1rem 0 0.5rem 0;">一、肖像权法律义务</h3>
+          <p style="margin:0.4rem 0;">根据《民法典》第1019条，自然人对其肖像享有肖像权，任何组织或个人不得未经肖像权人同意制作、使用、公开其肖像。</p>
+          <ul style="padding-left:1.25rem;margin:0.4rem 0;">
+            <li style="margin:0.3rem 0;"><strong>上传他人照片</strong>（包括明星、公众人物、朋友等）须已取得其<strong>明示授权</strong>；</li>
+            <li style="margin:0.3rem 0;">将生成图像<strong>对外传播或商业使用</strong>须额外获得相关权利人授权；</li>
+            <li style="margin:0.3rem 0;">任何因违规使用他人肖像而产生的法律责任，由用户自行承担。</li>
+          </ul>
+
+          <h3 style="font-size:0.95rem;font-weight:700;color:#1e293b;margin:1rem 0 0.5rem 0;">二、AI生成内容合规标识</h3>
+          <p style="margin:0.4rem 0;">根据《生成式人工智能服务管理暂行办法》（2023年）及《互联网信息服务深度合成管理规定》：</p>
+          <ul style="padding-left:1.25rem;margin:0.4rem 0;">
+            <li style="margin:0.3rem 0;">本工具生成的所有图像均为 AI 合成，<strong>不代表真实人物形象</strong>；</li>
+            <li style="margin:0.3rem 0;">如需分享生成图像，<strong>必须明确标注"AI生成/合成图像"</strong>，不得以假乱真；</li>
+            <li style="margin:0.3rem 0;">严禁将生成图像用于<strong>诈骗、造谣、诽谤、骚扰</strong>等违法用途。</li>
+          </ul>
+
+          <h3 style="font-size:0.95rem;font-weight:700;color:#1e293b;margin:1rem 0 0.5rem 0;">三、平台服务性质</h3>
+          <p style="margin:0.4rem 0;background:#fef3c7;border:1px solid #fde68a;border-radius:6px;padding:0.5rem 0.75rem;color:#92400e;">本工具仅供<strong>娱乐体验和创意探索</strong>使用。生成结果为 AI 模拟效果，与真实人物不存在关联，不构成任何形式的侵权行为的证明材料。</p>
+          <p style="margin:0.4rem 0;">本工具仅提供技术服务，不对用户违规使用行为承担任何法律责任。</p>
+
+          <p style="margin:1.25rem 0 0;font-size:0.8rem;color:#64748b;text-align:center;">如不同意以上条款，请立即关闭本工具。</p>
+        </div>
+        <div style="padding:1rem 1.75rem 1.25rem;border-top:1px solid #e2e8f0;background:#f8fafc;border-radius:0 0 16px 16px;">
+          <label v-if="!disclaimerScrolled" style="display:flex;align-items:center;gap:0.5rem;color:#94a3b8;font-size:0.85rem;margin-bottom:0.75rem;cursor:not-allowed;">
+            <input type="checkbox" disabled style="cursor:not-allowed;" />
+            请先滚动阅读完整条款 ↑
+          </label>
+          <label v-else style="display:flex;align-items:center;gap:0.5rem;color:#334155;font-size:0.85rem;margin-bottom:0.75rem;cursor:pointer;">
+            <input type="checkbox" v-model="disclaimerChecked" style="cursor:pointer;width:16px;height:16px;" />
+            我已阅读并同意上述条款，我将合法合规使用本工具，上传的照片均已获得相关权利人授权
+          </label>
+          <button
+            @click="acceptDisclaimer"
+            :disabled="!disclaimerScrolled || !disclaimerChecked"
+            style="width:100%;padding:0.7rem;border-radius:8px;font-weight:700;font-size:0.95rem;border:none;cursor:pointer;transition:all 0.2s;"
+            :style="(!disclaimerScrolled || !disclaimerChecked) ? 'background:#e2e8f0;color:#94a3b8;cursor:not-allowed;' : 'background:#7c3aed;color:#fff;cursor:pointer;'"
+          >
+            {{ (!disclaimerScrolled || !disclaimerChecked) ? '请阅读并勾选同意后继续' : '我同意并继续使用' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <ActivationModal
+      :isOpen="showActivation"
       @close="showActivation = false"
       @activated="handleActivated"
     />
@@ -123,13 +196,48 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch, onMounted } from 'vue';
+import { ref, reactive, computed, watch, onMounted, nextTick } from 'vue';
 import axios from 'axios';
 import ImageUpload from './components/ImageUpload.vue';
 import FusionControl from './components/FusionControl.vue';
 import SceneStyling from './components/SceneStyling.vue';
 import PromptPreview from './components/PromptPreview.vue';
 import ActivationModal from './components/ActivationModal.vue';
+
+// ── 肖像权免责声明
+const DISCLAIMER_KEY = 'starface_disclaimer_v1';
+const showDisclaimer = ref(false);
+const disclaimerScrolled = ref(false);
+const disclaimerChecked = ref(false);
+const disclaimerContentRef = ref(null);
+
+function checkDisclaimer() {
+  if (!sessionStorage.getItem(DISCLAIMER_KEY)) {
+    showDisclaimer.value = true;
+  }
+}
+function acceptDisclaimer() {
+  sessionStorage.setItem(DISCLAIMER_KEY, '1');
+  showDisclaimer.value = false;
+}
+function handleDisclaimerScroll(e) {
+  const el = e.target;
+  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 5) {
+    disclaimerScrolled.value = true;
+  }
+}
+
+// 当弹窗显示时检查：若内容不需要滚动（高度未超出容器），直接标记为已读
+watch(showDisclaimer, (val) => {
+  if (val) {
+    nextTick(() => {
+      const el = disclaimerContentRef.value;
+      if (el && el.scrollHeight <= el.clientHeight + 5) {
+        disclaimerScrolled.value = true;
+      }
+    });
+  }
+});
 
 // State
 const balance = ref(0);
@@ -145,6 +253,9 @@ const starName = ref('');
 const mode = ref('single');
 const singleRatio = ref(50);
 const batchRatios = ref([20, 40, 60, 80, 100]); // 5 default ratios
+
+// 输出分辨率：1K(10积分) / 2K(15积分)
+const outputResolution = ref('1k');
 
 const styling = reactive({
   clothing: { text: '', keep: false },
@@ -173,9 +284,8 @@ function toAbsoluteApiUrl(maybeRelativeUrl) {
 // Computed
 const estimatedCost = computed(() => {
   const count = mode.value === 'single' ? 1 : 5;
-  // Single: 10 pts per image. Batch: 50 pts per 5 images.
-  // If two-photo fusion is used, pricing remains the same.
-  return count === 1 ? 10 : 50;
+  const per = outputResolution.value === '2k' ? 15 : 10;
+  return per * count;
 });
 
 // Logic
@@ -211,11 +321,15 @@ const generatePromptText = (ratio) => {
     ? ''
     : (styling.pose.text ? ` The subject should be ${styling.pose.text}.` : '');
 
+  const resLine = outputResolution.value === '2k'
+    ? 'Output at 2048x2048 resolution.'
+    : 'Output at 1024x1024 resolution.';
+
   if (hasSecond) {
-    return `Blend the faces from IMAGE 1 (${userPct}% influence) and IMAGE 2 (${starPct}% influence) into a single, realistic new person. Keep both identities' key facial features while producing a coherent natural face. The result must look like a real human being — not AI-generated or CGI. Preserve completely natural skin texture: visible pores, fine surface hair, subtle color variations, realistic skin sheen, minor natural imperfections such as small blemishes or capillaries. Do not smooth, airbrush, or beautify the skin in any way. The face must look photorealistic with natural depth, accurate lighting, and consistent skin tone. ${clothing} ${bg}${hair}${pose} Output at 1024x1024 resolution.`;
+    return `Blend the faces from IMAGE 1 (${userPct}% influence) and IMAGE 2 (${starPct}% influence) into a single, realistic new person. Keep both identities' key facial features while producing a coherent natural face. The result must look like a real human being — not AI-generated or CGI. Preserve completely natural skin texture: visible pores, fine surface hair, subtle color variations, realistic skin sheen, minor natural imperfections such as small blemishes or capillaries. Do not smooth, airbrush, or beautify the skin in any way. The face must look photorealistic with natural depth, accurate lighting, and consistent skin tone. ${clothing} ${bg}${hair}${pose} ${resLine}`;
   }
 
-  return `Naturally blend the face of the person in the uploaded photo (${userPct}% influence) with the appearance of ${starLabel} (${starPct}% influence). The result must look like a real human being — not AI-generated or CGI. Preserve completely natural skin texture: visible pores, fine surface hair, subtle color variations, realistic skin sheen, minor natural imperfections such as small blemishes or capillaries. Do not smooth, airbrush, or beautify the skin in any way. The face must look photorealistic with natural depth, accurate lighting, and consistent skin tone. ${clothing} ${bg}${hair}${pose} Output at 1024x1024 resolution.`;
+  return `Naturally blend the face of the person in the uploaded photo (${userPct}% influence) with the appearance of ${starLabel} (${starPct}% influence). The result must look like a real human being — not AI-generated or CGI. Preserve completely natural skin texture: visible pores, fine surface hair, subtle color variations, realistic skin sheen, minor natural imperfections such as small blemishes or capillaries. Do not smooth, airbrush, or beautify the skin in any way. The face must look photorealistic with natural depth, accurate lighting, and consistent skin tone. ${clothing} ${bg}${hair}${pose} ${resLine}`;
 };
 
 const updatePrompts = () => {
@@ -241,7 +355,7 @@ const updatePrompts = () => {
 };
 
 // Watchers to auto-update prompts
-watch([starName, mode, singleRatio, batchRatios, styling], updatePrompts, { deep: true });
+watch([starName, mode, singleRatio, batchRatios, styling, outputResolution], updatePrompts, { deep: true });
 
 // Actions
 const handleGenerate = async () => {
@@ -257,6 +371,7 @@ const handleGenerate = async () => {
     const res = await axios.post(`${API_URL}/proxy/generate`, {
       batch_size: mode.value === 'single' ? 1 : 5,
       prompts: generatedPrompts.value,
+      output_resolution: outputResolution.value,
       userImageBase64: userImage.value, // Pass uploaded image data
       userImageBase64_2: userImage2.value // Optional second image for two-photo fusion
     }, {
@@ -332,6 +447,7 @@ onMounted(async () => {
       localStorage.setItem('pengip_token', res.data.token);
       balance.value = res.data.user.balance;
       fetchHistory();
+      checkDisclaimer();
       return;
     }
   } catch (e) {}
@@ -345,6 +461,7 @@ onMounted(async () => {
       });
       balance.value = res.data.balance;
       fetchHistory();
+      checkDisclaimer();
     } catch (e) {
       showActivation.value = true;
     }

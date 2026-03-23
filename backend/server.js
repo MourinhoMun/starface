@@ -245,15 +245,19 @@ app.post('/api/v1/proxy/ai-suggestion', authenticateToken, async (req, res) => {
 
 // 4. Image Generation – single: 10pts (mystarface_generate), batch x5: 50pts (mystarface_generate_batch)
 app.post('/api/v1/proxy/generate', authenticateToken, async (req, res) => {
-    const { prompts, userImageBase64, userImageBase64_2 } = req.body;
+    const { prompts, userImageBase64, userImageBase64_2, output_resolution } = req.body;
 
     if (!prompts?.length || !userImageBase64) {
         return res.status(400).json({ error: 'Missing prompts or image' });
     }
 
     const isBatch = prompts.length > 1;
-    const COST_PER_IMAGE = 10;
+    const outRes = (output_resolution === '2k') ? '2k' : '1k';
+    const COST_PER_IMAGE = outRes === '2k' ? 15 : 10;
     const totalCost = COST_PER_IMAGE * prompts.length;
+
+    const SOFTWARE_SINGLE = outRes === '2k' ? 'mystarface_generate_2k' : 'mystarface_generate';
+    const SOFTWARE_BATCH = outRes === '2k' ? 'mystarface_generate_batch_2k' : 'mystarface_generate_batch';
 
     // Pre-check balance (SaaS: fail closed on backend errors)
     try {
@@ -271,11 +275,10 @@ app.post('/api/v1/proxy/generate', authenticateToken, async (req, res) => {
         return res.status(503).json({ error: '授权服务暂不可用，请稍后重试' });
     }
 
-    // Batch mode: deduct 50 points upfront in one call.
-    // Later we will refund the difference based on how many images actually succeeded.
+    // Batch mode: deduct upfront in one call, then refund the difference based on successCount.
     if (isBatch) {
         const d = await axios.post(`${LICENSE_BACKEND_URL}/api/v1/proxy/use`,
-            { software: 'mystarface_generate_batch' },
+            { software: SOFTWARE_BATCH },
             { headers: { Authorization: req.authHeader, 'Content-Type': 'application/json' }, validateStatus: () => true }
         ).catch(err => ({ status: err.response?.status || 500, data: err.response?.data || { error: err.message } }));
 
@@ -287,7 +290,8 @@ app.post('/api/v1/proxy/generate', authenticateToken, async (req, res) => {
     const results = [];
     for (const p of prompts) {
         try {
-            const fullPrompt = `${p.positive}\n\nCRITICAL REQUIREMENTS: The output must look completely photorealistic — like a real photograph, not AI-generated. Skin must have visible pores, fine surface hair, subtle texture and color variations, and natural imperfections. Do not smooth, airbrush, or apply any beauty filter. The lighting should be natural and consistent. Avoid any plastic, waxy, or CGI-like appearance. Output at 1024x1024 resolution.`;
+            const resLine = outRes === '2k' ? 'Output at 2048x2048 resolution.' : 'Output at 1024x1024 resolution.';
+            const fullPrompt = `${p.positive}\n\nCRITICAL REQUIREMENTS: The output must look completely photorealistic — like a real photograph, not AI-generated. Skin must have visible pores, fine surface hair, subtle texture and color variations, and natural imperfections. Do not smooth, airbrush, or apply any beauty filter. The lighting should be natural and consistent. Avoid any plastic, waxy, or CGI-like appearance. ${resLine}`;
             const img = await callGeminiImage(fullPrompt, userImageBase64, userImageBase64_2);
 
             if (img?.dataUrl) {
@@ -299,7 +303,7 @@ app.post('/api/v1/proxy/generate', authenticateToken, async (req, res) => {
                 results.push({ ok: true, url: savedUrl || img.dataUrl });
                 // Single mode: deduct per image after success
                 if (!isBatch) {
-                    deductPoints(req.authHeader, 'mystarface_generate');
+                    deductPoints(req.authHeader, SOFTWARE_SINGLE);
                 }
             } else {
                 results.push({ ok: false, error: img?.error || { finishReason: 'NO_IMAGE' } });
@@ -311,15 +315,16 @@ app.post('/api/v1/proxy/generate', authenticateToken, async (req, res) => {
         }
     }
 
-    // Refund logic for batch: charged 50 upfront, final price is 10 * successCount
+    // Refund logic for batch: charged upfront, final price is COST_PER_IMAGE * successCount
     if (isBatch && req.userId) {
         const successCount = results.filter(r => r && r.ok).length;
-        const shouldCharge = 10 * successCount;
-        const toRefund = Math.max(0, 50 - shouldCharge);
+        const chargedUpfront = totalCost;
+        const shouldCharge = COST_PER_IMAGE * successCount;
+        const toRefund = Math.max(0, chargedUpfront - shouldCharge);
 
         if (toRefund > 0) {
-            const relatedId = `starface_batch_${Date.now()}_${uuidv4()}`;
-            const rr = await refundPoints(req.authHeader, req.userId, toRefund, relatedId, `StarFace batch refund: success=${successCount}/5`).catch((e) => ({ status: e.response?.status || 500, data: e.response?.data }));
+            const relatedId = `starface_batch_${outRes}_${Date.now()}_${uuidv4()}`;
+            const rr = await refundPoints(req.authHeader, req.userId, toRefund, relatedId, `StarFace batch refund(${outRes}): success=${successCount}/${prompts.length}`).catch((e) => ({ status: e.response?.status || 500, data: e.response?.data }));
             if (rr.status !== 200) {
                 console.error('Refund failed:', rr.data || `HTTP ${rr.status}`);
             }
